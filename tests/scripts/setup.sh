@@ -59,37 +59,30 @@ function success {
     echo "  OK"
 }
 
+#function curl_get_raw {
+#    curl -H "content-type: application/json" -H "Authorization: ApiKey $APP_ID.$PROXY_ID MySecret" $@
+#}
+
+#function curl_post_raw {
+#    curl -H "content-type: application/json" -H "Authorization: ApiKey $APP_ID.$PROXY_ID MySecret" -d @- $@
+#}
+
 function curl_get {
-    curl -H "content-type: application/json" -H "Authorization: ApiKey $APP_ID.$PROXY_ID MySecret" $@
+    BODY_FILE=$(mktemp)
+    JSON=$(curl -s -H "content-type: application/json" -H "Authorization: ApiKey $APP_ID.$PROXY_ID MySecret" -w %{json} -o $BODY_FILE $@)
+    BODY=$(cat $BODY_FILE | sed 's/\"/\\\"/g')
+    JSON=$(echo "$JSON" | jq ". + {\"body\": \"${BODY}\" }")
+    rm $BODY_FILE
+    echo "$JSON"
 }
-
-function curl_get_out {
-    out="$1"
-    shift
-    curl_get -s -w %{"$out"} "$@"
-}
-
-function curl_get_noout {
-    out="$1"
-    shift
-    curl_get_out "$out" -o /dev/null "$@"
-}
-
 
 function curl_post {
-    curl -H "content-type: application/json" -H "Authorization: ClientApiKey $APP_ID.$PROXY_ID MySecret" -d @- $@
+    BODY_FILE=$(mktemp)
+    JSON=$(curl -s -H "content-type: application/json" -H "Authorization: ApiKey $APP_ID.$PROXY_ID MySecret" -d @- -w %{json} -o $BODY_FILE $@)
+    BODY=$(cat $BODY_FILE | sed 's/\"/\\\"/g')
+    JSON=$(echo "$JSON" | jq ". + {\"body\": \"${BODY}\" }")
+    rm $BODY_FILE
+    echo "$JSON"
 }
 
-function curl_post_out {
-    out="$1"
-    shift
-    curl_post -s -w %{"$out"} "$@"
-}
-
-function curl_post_noout {
-    out="$1"
-    shift
-    curl_post_out "$out" -o /dev/null "$@"
-}
-
-export -f curl_get curl_get_out curl_get_noout curl_post curl_post_out curl_post_noout start stop clean testing fail success
+export -f curl_get curl_post start stop clean testing fail success
