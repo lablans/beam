@@ -35,8 +35,7 @@ jobs:
           context: . # we need the .git directory
           file: Dockerfile.${{ matrix.component }}
           push: false
-          platforms: linux/amd64
-#          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64
           tags: samply/beam-${{ matrix.component }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
