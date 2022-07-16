@@ -7,7 +7,7 @@ use vaultrs::{client::VaultClientSettingsBuilderError, error::ClientError};
 pub enum SamplyBeamError {
     #[error("Invalid bind address supplied: {0}")]
     BindAddr(AddrParseError),
-    #[error("Invalid broker address supplied: {0}")]
+    #[error("Invalid broker address supplied! {0}")]
     WrongBrokerUri(&'static str),
     #[error("The request could not be validated.")]
     RequestValidationFailed,
