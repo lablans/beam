@@ -1,16 +1,22 @@
 FROM rust:bullseye AS chef
-RUN cargo install cargo-chef
 WORKDIR /app
+RUN cargo install cargo-chef
 
 FROM chef AS planner
+WORKDIR /app
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef AS builder
+FROM chef AS cacher
+WORKDIR /app
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
-# Cache until here
+
+FROM chef AS builder
+WORKDIR /app
 COPY . .
+COPY --from=cacher /app/target target
+COPY --from=cacher $CARGO_HOME $CARGO_HOME
 RUN cargo build --bin proxy --release
 
 FROM gcr.io/distroless/cc
