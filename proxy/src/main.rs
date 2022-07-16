@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use shared::config;
 use shared::errors::SamplyBeamError;
 use tracing::{warn, info, debug};
