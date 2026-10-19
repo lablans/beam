@@ -7,6 +7,7 @@ use aws_lc_rs::{
         KeyPair, OaepPublicEncryptingKey, PrivateDecryptingKey as RsaPrivateKey,
         PublicEncryptingKey as RsaPublicKey,
     },
+    signature::{self, RsaParameters, UnparsedPublicKey},
 };
 use itertools::Itertools;
 use jsonwebtoken::DecodingKey;
@@ -32,7 +33,6 @@ use x509_cert::{
     ext::pkix::name::DirectoryString,
     Certificate,
 };
-use x509_parser::parse_x509_certificate;
 
 use crate::{
     crypto,
@@ -806,22 +806,33 @@ pub fn verify_cert(
     certificate: &X509,
     root_ca_cert: &X509,
 ) -> Result<(), CertificateInvalidReason> {
-    let certificate_der = certificate
-        .certificate
+    use x509_cert::der::oid::db::rfc5912::*;
+    let cert = &certificate.certificate;
+    let algorithm: &RsaParameters = match cert.signature_algorithm().oid {
+        SHA_256_WITH_RSA_ENCRYPTION => &signature::RSA_PKCS1_2048_8192_SHA256,
+        SHA_384_WITH_RSA_ENCRYPTION => &signature::RSA_PKCS1_2048_8192_SHA384,
+        SHA_512_WITH_RSA_ENCRYPTION => &signature::RSA_PKCS1_2048_8192_SHA512,
+        SHA_1_WITH_RSA_ENCRYPTION => &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
+        oid => {
+            return Err(CertificateInvalidReason::Other(format!(
+                "Unsupported signature algorithm {oid}"
+            )))
+        }
+    };
+    let tbs_der = cert
+        .tbs_certificate()
         .to_der()
         .map_err(|e| CertificateInvalidReason::Other(e.to_string()))?;
-    let issuer_der = root_ca_cert
+    let issuer_key = root_ca_cert
         .certificate
-        .to_der()
-        .map_err(|e| CertificateInvalidReason::Other(e.to_string()))?;
-    let (_, certificate) = parse_x509_certificate(&certificate_der)
-        .map_err(|e| CertificateInvalidReason::Other(e.to_string()))?;
-    let (_, issuer) = parse_x509_certificate(&issuer_der)
-        .map_err(|e| CertificateInvalidReason::Other(e.to_string()))?;
-    certificate
-        .verify_signature(Some(issuer.public_key()))
+        .tbs_certificate()
+        .subject_public_key_info()
+        .subject_public_key
+        .raw_bytes();
+    UnparsedPublicKey::new(algorithm, issuer_key)
+        .verify(&tbs_der, cert.signature().raw_bytes())
         .map_err(|_| CertificateInvalidReason::InvalidPublicKey)?;
-    if certificate.validity().is_valid() {
+    if x509_date_valid(certificate).unwrap_or(false) {
         Ok(())
     } else {
         Err(CertificateInvalidReason::InvalidDate)
@@ -1022,6 +1033,25 @@ mod tests {
             "80:aa:bb",
             asn_str_to_vault_str(&[0x00, 0x80, 0xaa, 0xbb]).unwrap()
         );
+    }
+
+    #[test]
+    fn verify_cert_checks_issuer_signature() {
+        let pem = |b: &[u8]| X509::from_pem(b).unwrap();
+        let ca = pem(include_bytes!("test_certs/ca.pem"));
+        let other_ca = pem(include_bytes!("test_certs/other_ca.pem"));
+        let leaf = pem(include_bytes!("test_certs/leaf.pem"));
+        let leaf_pss = pem(include_bytes!("test_certs/leaf_pss.pem"));
+
+        assert!(verify_cert(&leaf, &ca).is_ok());
+        assert!(matches!(
+            verify_cert(&leaf, &other_ca),
+            Err(CertificateInvalidReason::InvalidPublicKey)
+        ));
+        assert!(matches!(
+            verify_cert(&leaf_pss, &ca),
+            Err(CertificateInvalidReason::Other(_))
+        ));
     }
 
     const CERT_TO_REVOKE: &[u8] = b"-----BEGIN CERTIFICATE-----\nMIIDLjCCAhYCFCNuyAi2zfAyORDDiwsJnfJojBk8MA0GCSqGSIb3DQEBCwUAMFQx\nCzAJBgNVBAYTAkRFMRMwEQYDVQQIDApIZWlkZWxiZXJnMSEwHwYDVQQKDBhJbnRl\ncm5ldCBXaWRnaXRzIFB0eSBMdGQxDTALBgNVBAMMBHRlc3QwHhcNMjMwODI0MDc1\nMjM1WhcNMjMwOTIzMDc1MjM1WjBTMQswCQYDVQQGEwJERTETMBEGA1UECAwKU29t\nZS1TdGF0ZTEhMB8GA1UECgwYSW50ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMQwwCgYD\nVQQDDANmb28wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDd2aLmn3EX\nkSMIxdMWXe8oQNyWBktyBoNK+gSyYBO3SkIcRKM41Ama4GgeIJnDRbL2XLC3Gkhv\nHyvBocVYeP/kWtw8Zvmmi/9Ztv04pVn6LzX2Yaqtm9X78Jo3n2ug2cC8IEoMaYbF\nTcUuV7IX1oSF4Fo3KRRoAUki6yok3uEFVH5cl/UPYyYRJ+CKvoras4c9arZ3Nk3G\na9ImlniBPZ3qQwnkJX5pKcKFzYka7xrNbCpInF/v68R9Hiy4YwUQbGeTfTM+W3i9\nn5ZnSWuwY5lew3WSnpcfYKJQCLhJ9iAXq13+oYbDFSA12pSBIEz0xve3/zR5Cg81\nLGKtvpllzfGVAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAGk2Zii31WPqXwzAUNc0\nS6GjTkHMP5gzdTjYspdBOm8bdJROEp9O/vjAc2Oci4waI9FT6oZPhwX/a6TDtUGs\nAZeQYt9vlS4LPgs6RTF4sFXy+pl7EA/wYqb7e0LSVsx7feTpeRRCIbFXenTKa7m+\nMXsDRCR9weplJdFeyBodFBsNMpShOe3WbnQ7Gi3jLYCUb7acX4I4H4VA7HdakZJr\nEJzP0TQzt/vrSwA2GsNWgO5sOXYkYvjieqzfi89fqY6ZT2jWQ+v+wc7kDiBRbkVU\nGooK1Vo2TJYeaPPmyNomRZtlpgXBGztYyJTfPY0A0M1Fky8Y8QLObtxG0/fkWOft\nHyU=\n-----END CERTIFICATE-----";
