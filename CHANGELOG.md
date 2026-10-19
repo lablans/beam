@@ -4,7 +4,7 @@
 ## Minor changes
 
 * When rejecting a malformed task or result, Beam now returns the reason, e.g. which Beam ID is invalid (previously a generic `Invalid body`).
-* Switched the cryptography backend from OpenSSL and RSA to aws-lc-rs, improving performance.
+* Switched the cryptography backend from OpenSSL and RSA to aws-lc-rs, improving performance. TLS connections now use rustls, which rejects some certificate chains that OpenSSL accepted (e.g. SHA-1 signatures, intermediate CAs without a proper `basicConstraints` extension) and TLS versions below 1.2. Sites behind a TLS-terminating proxy (`--tls_ca_certificates_dir`) should verify the connection to the broker before upgrading.
 * API keys are now compared in constant time and may contain non-ASCII UTF-8 characters.
 * The Beam Proxy can now be stopped while it is still waiting for the broker during startup.
 
