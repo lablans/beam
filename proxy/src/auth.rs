@@ -53,10 +53,7 @@ where
             api_key_claimed.as_bytes(),
             api_key_actual.as_bytes(),
         ) {
-            warn!(
-                provided_key = api_key_claimed,
-                "App {client_id} provided the wrong api key"
-            );
+            warn!("App {client_id} provided the wrong api key");
             return Err(UNAUTH_ERR);
         }
         debug!("Request authenticated (ClientID {})", client_id);
