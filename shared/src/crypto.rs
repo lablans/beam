@@ -51,7 +51,6 @@ fn decode_pem(input: &[u8]) -> Result<(String, Vec<u8>), SamplyBeamError> {
 
 pub struct X509 {
     certificate: Certificate,
-    rsa_public_key: RsaPublicKey,
     pub oaep_public_key: OaepPublicEncryptingKey,
     pub(crate) jwt_decoding_key: DecodingKey,
 }
@@ -87,10 +86,9 @@ impl X509 {
                 "Certificate does not contain an RSA public key".into(),
             )
         })?;
-        let oaep_public_key =
-            OaepPublicEncryptingKey::new(rsa_public_key.clone()).map_err(|_| {
-                SamplyBeamError::SignEncryptError("Unable to initialize RSA-OAEP public key".into())
-            })?;
+        let oaep_public_key = OaepPublicEncryptingKey::new(rsa_public_key).map_err(|_| {
+            SamplyBeamError::SignEncryptError("Unable to initialize RSA-OAEP public key".into())
+        })?;
         let jwt_decoding_key = DecodingKey::from_rsa_der(
             certificate
                 .tbs_certificate()
@@ -100,7 +98,6 @@ impl X509 {
         );
         Ok(Self {
             certificate,
-            rsa_public_key,
             oaep_public_key,
             jwt_decoding_key,
         })
